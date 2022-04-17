@@ -1,92 +1,62 @@
-ARG UBUNTU_VERSION=20.04
+# We need the following for the course: 
+#   - waymo-open-dataset
+#       - see https://github.com/waymo-research/waymo-open-dataset/tree/master/pip_pkg_scripts
+#       - Shows that we need Python 3.7+ and tf-2-4/5/6
+#   - Object Detection API with TensorFlow 2
+#       - see https://github.com/tensorflow/models/tree/master/research/object_detection
+#   - GPU support
+#   - jupyter
+#   - Google cloud tools gsutil and gcloud
+# The image from nvcr has Python 3.8, tf-2-6-0, jupyter and GPU support already pre installed
+# The host needs Nvidia drivers with CUDA 11.5+ e.g. nvidia-driver-510 on Linux and Docker + Nvidia Docker toolkit
+# see https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
+#
+# Google Cloud SDK is installed according to doc
+# see https://cloud.google.com/sdk/docs/downloads-versioned-archives
+# 
+# Additionally examples from tensorflow docs are installed for reference.
+#
+# Password authentication for jupyter can be enabled by building image with --build-arg TOKEN
+#    e.g.   docker build -t project-dev:latest --build-arg TOKEN="letmein" -f Dockerfile . 
+# will build an image with "letmein" as jupyter password.
+# Building with --build-arg TOKEN="" deactivates jupyter authentication at all.
+# If no build-arg is provided the default authentication with jupyter tokens is enabled.
+# see https://blog.ouseful.info/2019/02/05/on-not-faffing-around-with-jupyter-docker-container-auth-tokens/
+#
+# Run the built image with
+# docker run --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v PATH_TO_PROJECT:/app/project/ --network=host -ti project-dev:latest
 
-ARG ARCH=
-ARG CUDA=11.2
-FROM nvidia/cuda${ARCH:+-$ARCH}:${CUDA}.1-base-ubuntu${UBUNTU_VERSION} as base
-# ARCH and CUDA are specified again because the FROM directive resets ARGs
-# (but their default value is retained if set previously)
-ARG ARCH
-ARG CUDA
-ARG CUDNN=8.1.0.77-1
-ARG CUDNN_MAJOR_VERSION=8
-ARG LIB_DIR_PREFIX=x86_64
-ARG LIBNVINFER=8.0.0-1
-ARG LIBNVINFER_MAJOR_VERSION=8
+FROM nvcr.io/nvidia/tensorflow:21.11-tf2-py3 
 
-# Let us install tzdata painlessly
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Needed for string substitution
-SHELL ["/bin/bash", "-c"]
-# Pick up some TF dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        ffmpeg \
-        git \
-        git-core \
-        g++ \
-        vim \
-        zip \
-        zlib1g-dev \
-        cuda-command-line-tools-${CUDA/./-} \
-        libcublas-${CUDA/./-} \
-        cuda-nvrtc-${CUDA/./-} \
-        libcufft-${CUDA/./-} \
-        libcurand-${CUDA/./-} \
-        libcusolver-${CUDA/./-} \
-        libcusparse-${CUDA/./-} \
-        curl \
-        libcudnn8=${CUDNN}+cuda${CUDA} \
-        libfreetype6-dev \
-        libhdf5-serial-dev \
-        libzmq3-dev \
-        libcairo2-dev \
-        pkg-config \
-        software-properties-common \
-        unzip \
-        wget
+# Install apt dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    git \
+    gpg-agent \
+    python3-cairocffi \
+    protobuf-compiler \
+    python3-pil \
+    python3-lxml \
+    python3-tk \
+    vim \
+    wget \
+    zip \
+    zlib1g-dev
 
-# Install TensorRT if not building for PowerPC
-# NOTE: libnvinfer uses cuda11.1 versions
-RUN [[ "${ARCH}" = "ppc64le" ]] || { apt-get update && \
-        apt-get install -y --no-install-recommends libnvinfer${LIBNVINFER_MAJOR_VERSION}=${LIBNVINFER}+cuda11.0 \
-        libnvinfer-plugin${LIBNVINFER_MAJOR_VERSION}=${LIBNVINFER}+cuda11.0 \
-        && apt-get clean \
-        && rm -rf /var/lib/apt/lists/*; }
+# Install Google Clound CLI
+RUN curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-381.0.0-linux-x86_64.tar.gz
+RUN tar -xf google-cloud-cli-381.0.0-linux-x86_64.tar.gz
+RUN ./google-cloud-sdk/install.sh --command-completion True --path-update True --quiet
 
-# For CUDA profiling, TensorFlow requires CUPTI.
-ENV LD_LIBRARY_PATH /usr/local/cuda/extras/CUPTI/lib64:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+# install aditional dependencies
+# tf-models==2.6.0 is required otherwise object detection setup will install tf 2.8 which is not supported by waymo-open-dataset
+RUN python -m pip install waymo-open-dataset-tf-2-6-0 Cython ray tf-models-official==2.6.0
 
-# Link the libcuda stub to the location where tensorflow is searching for it and reconfigure
-# dynamic linker run-time bindings
-RUN ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1 \
-    && echo "/usr/local/cuda/lib64/stubs" > /etc/ld.so.conf.d/z-cuda-stubs.conf \
-    && ldconfig
-
-# See http://bugs.python.org/issue19846
-ENV LANG C.UTF-8
-
-RUN apt update -y && \
-    add-apt-repository ppa:deadsnakes/ppa -y && \
-    apt install -y python3.8 python3-pip
-
-RUN ln -s $(which python3) /usr/local/bin/python
-
-RUN python -m pip install --upgrade pip && \
-    pip install tensorflow==2.5.0 tf-models-official==2.5.1 tensorflow_io==0.19.1 pyparsing==2.4.2 pycairo
-
+# Install tensorflow object detection
 WORKDIR /app
-
-COPY requirements.txt .
-RUN python3 -m pip install -r requirements.txt
-RUN python3 -m pip install git+https://github.com/philferriere/cocoapi.git#subdirectory=PythonAPI
-
-ENV TF_CPP_MIN_LOG_LEVEL=2
-
-RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v3.13.0/protoc-3.13.0-linux-x86_64.zip && \
-    unzip protoc-3.13.0-linux-x86_64.zip -d /app/protobuf/
-
-ENV PATH "$PATH:/app/protobuf/bin"
+RUN mkdir project
 
 RUN git clone https://github.com/tensorflow/models.git && \
     cd /app/models/research/ && \
@@ -94,6 +64,21 @@ RUN git clone https://github.com/tensorflow/models.git && \
     cp object_detection/packages/tf2/setup.py . && \
     python -m pip install .
 
-# Install google cloud SDK
-RUN curl -sSL https://sdk.cloud.google.com > /tmp/gcl && bash /tmp/gcl --install-dir=~/gcloud --disable-prompts
-ENV PATH="$PATH:/root/gcloud/google-cloud-sdk/bin"
+ENV TF_CPP_MIN_LOG_LEVEL 3
+
+# Download tensorflow docs and examples
+WORKDIR /app
+RUN git clone https://github.com/tensorflow/docs.git
+
+# Configure jupyter to run with password if one was provided during build of container
+ARG TOKEN=-1
+RUN mkdir -p $HOME/.jupyter/
+RUN if [ $TOKEN!=-1 ]; then echo "c.NotebookApp.token='$TOKEN'" >> $HOME/.jupyter/jupyter_notebook_config.py; fi
+
+# Run jupyter if a password was provided during build of image
+EXPOSE 8888
+CMD if [ -f "$HOME/.jupyter/jupyter_notebook_config.py" ]; \
+    then jupyter lab; \
+    else echo "No jupyter password provided during build of image. Rebuild image with --build-arg TOKEN='MYPASSWORD' or run jupyter lab command manually inside container.";\
+    fi
+
