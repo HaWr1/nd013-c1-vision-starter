@@ -13,8 +13,6 @@
 #
 # Google Cloud SDK is installed according to doc
 # see https://cloud.google.com/sdk/docs/downloads-versioned-archives
-# 
-# Additionally examples from tensorflow docs are installed for reference.
 #
 # Password authentication for jupyter can be enabled by building image with --build-arg TOKEN
 #    e.g.   docker build -t project-dev:latest --build-arg TOKEN="letmein" -f Dockerfile . 
@@ -52,7 +50,7 @@ RUN ./google-cloud-sdk/install.sh --command-completion True --path-update True -
 
 # install aditional dependencies
 # tf-models==2.6.0 is required otherwise object detection setup will install tf 2.8 which is not supported by waymo-open-dataset
-RUN python -m pip install waymo-open-dataset-tf-2-6-0 Cython ray tf-models-official==2.6.0
+RUN python -m pip install waymo-open-dataset-tf-2-6-0 Cython ray tf-models-official==2.6.0 tensorflow-addons==0.14.0
 
 # Install tensorflow object detection
 WORKDIR /app
@@ -65,10 +63,6 @@ RUN git clone https://github.com/tensorflow/models.git && \
     python -m pip install .
 
 ENV TF_CPP_MIN_LOG_LEVEL 3
-
-# Download tensorflow docs and examples
-WORKDIR /app
-RUN git clone https://github.com/tensorflow/docs.git
 
 # Configure jupyter to run with password if one was provided during build of container
 ARG TOKEN=-1
