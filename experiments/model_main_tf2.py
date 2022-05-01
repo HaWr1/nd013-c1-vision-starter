@@ -30,6 +30,9 @@ python model_main_tf2.py -- \
 from absl import flags
 import tensorflow.compat.v2 as tf
 from object_detection import model_lib_v2
+import logging
+import os
+os.environ['TF_CPP_MIN_VLOG_LEVEL'] = '3'
 
 flags.DEFINE_string('pipeline_config_path', None, 'Path to pipeline config '
                     'file.')
@@ -50,7 +53,7 @@ flags.DEFINE_string(
     '`checkpoint_dir` is provided, this binary operates in eval-only mode, '
     'writing resulting metrics to `model_dir`.')
 
-flags.DEFINE_integer('eval_timeout', 60, 'Number of seconds to wait for an'
+flags.DEFINE_integer('eval_timeout', 600, 'Number of seconds to wait for an'
                      'evaluation checkpoint before exiting.')
 
 flags.DEFINE_bool('use_tpu', False, 'Whether the job is executing on a TPU.')
@@ -63,18 +66,31 @@ flags.DEFINE_integer(
     'MultiWorkerMirroredStrategy. When num_workers = 1 it uses '
     'MirroredStrategy.')
 flags.DEFINE_integer(
-    'checkpoint_every_n', 2000, 'Integer defining how often we checkpoint.')
+    'checkpoint_every_n', 100, 'Integer defining how often we checkpoint.')
 flags.DEFINE_boolean('record_summaries', True,
                      ('Whether or not to record summaries during'
                       ' training.'))
 
 FLAGS = flags.FLAGS
 
-
 def main(unused_argv):
   flags.mark_flag_as_required('model_dir')
   flags.mark_flag_as_required('pipeline_config_path')
   tf.config.set_soft_device_placement(True)
+
+  # get TF logger
+  # see https://stackoverflow.com/questions/40559667/how-to-redirect-tensorflow-logging-to-a-file
+  log = logging.getLogger('tensorflow')
+  log.setLevel(logging.DEBUG)
+
+  # create formatter and add it to the handlers
+  formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+  # create file handler which logs even debug messages
+  fh = logging.FileHandler(FLAGS.model_dir + 'tensorflow.log')
+  fh.setLevel(logging.DEBUG)
+  fh.setFormatter(formatter)
+  log.addHandler(fh)
 
   if FLAGS.checkpoint_dir:
     model_lib_v2.eval_continuously(
