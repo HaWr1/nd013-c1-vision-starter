@@ -66,7 +66,7 @@ flags.DEFINE_integer(
     'MultiWorkerMirroredStrategy. When num_workers = 1 it uses '
     'MirroredStrategy.')
 flags.DEFINE_integer(
-    'checkpoint_every_n', 100, 'Integer defining how often we checkpoint.')
+    'checkpoint_every_n', 200, 'Integer defining how often we checkpoint.')
 flags.DEFINE_boolean('record_summaries', True,
                      ('Whether or not to record summaries during'
                       ' training.'))
@@ -78,8 +78,10 @@ def main(unused_argv):
   flags.mark_flag_as_required('pipeline_config_path')
   tf.config.set_soft_device_placement(True)
 
+  # configure TF logging for debugging
+  log_file_name = "train_tensorflow.log" if not FLAGS.checkpoint_dir else "val_tensorflow.log"
+  # source https://stackoverflow.com/questions/40559667/how-to-redirect-tensorflow-logging-to-a-file
   # get TF logger
-  # see https://stackoverflow.com/questions/40559667/how-to-redirect-tensorflow-logging-to-a-file
   log = logging.getLogger('tensorflow')
   log.setLevel(logging.DEBUG)
 
@@ -87,7 +89,7 @@ def main(unused_argv):
   formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
   # create file handler which logs even debug messages
-  fh = logging.FileHandler(FLAGS.model_dir + 'tensorflow.log')
+  fh = logging.FileHandler(FLAGS.model_dir + log_file_name)
   fh.setLevel(logging.DEBUG)
   fh.setFormatter(formatter)
   log.addHandler(fh)
